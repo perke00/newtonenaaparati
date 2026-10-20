@@ -1,0 +1,50 @@
+name: Build Atlas Tone (VST3, Windows)
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache JUCE download
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: juce-8.0.4-${{ runner.os }}
+
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build
+        run: cmake --build build --config Release --target AtlasTone_VST3 --parallel
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $vst = Get-ChildItem -Path build -Recurse -Directory -Filter "*.vst3" | Select-Object -First 1
+          if (-not $vst) { throw "VST3 not found" }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item -Recurse -Force $vst.FullName "dist/$($vst.Name)"
+          Compress-Archive -Path "dist/$($vst.Name)" -DestinationPath "AtlasTone-Windows-VST3.zip" -Force
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AtlasTone-Windows-VST3
+          path: AtlasTone-Windows-VST3.zip
+
+      - name: Publish release (on tag v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: AtlasTone-Windows-VST3.zip
